@@ -3,26 +3,13 @@ import datetime
 import traceback
 import functools
 import socket
-import yagmail
-
+import subprocess
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-def email_sender(recipient_emails: list, sender_email: str = None):
-    """
-    Email sender wrapper: execute func, send an email with the end status
-    (sucessfully finished or crashed) at the end. Also send an email before
-    executing func.
-
-    `recipient_emails`: list[str]
-        A list of email addresses to notify.
-    `sender_email`: str (default=None)
-        The email adress to send the messages. If None, use the same
-        address as the first recipient email in `recipient_emails`
-        if length of `recipient_emails` is more than 0.
-    """
-    if sender_email is None and len(recipient_emails) > 0:
-        sender_email = recipient_emails[0]
-    yag_sender = yagmail.SMTP(sender_email)
+def desktop_sender(title:str="knockknock"):
+    
+    def show_notification(text:str,title:str):
+        subprocess.run(["sh", "-c", "osascript -e 'display notification \"%s\" with title \"%s\"'" % (text, title)])
 
     def decorator_sender(func):
         @functools.wraps(func)
@@ -44,20 +31,20 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                 master_process = True
 
             if master_process:
-                contents = ['Your training has started.',
+                contents = ['Your training has started 🎬',
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT)]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has started 🎬', contents)
+                text = '\n'.join(contents)
+                show_notification(text, title)
+
             try:
                 value = func(*args, **kwargs)
 
                 if master_process:
                     end_time = datetime.datetime.now()
                     elapsed_time = end_time - start_time
-                    contents = ["Your training is complete.",
+                    contents = ["Your training is complete 🎉",
                                 'Machine name: %s' % host_name,
                                 'Main call: %s' % func_name,
                                 'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -70,16 +57,15 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                     except:
                         contents.append('Main call returned value: %s'% "ERROR - Couldn't str the returned value.")
 
-                    for i in range(len(recipient_emails)):
-                        current_recipient = recipient_emails[i]
-                        yag_sender.send(current_recipient, 'Training has sucessfully finished 🎉', contents)
+                    text = '\n'.join(contents)
+                    show_notification(text, title)
 
                 return value
 
             except Exception as ex:
                 end_time = datetime.datetime.now()
                 elapsed_time = end_time - start_time
-                contents = ["Your training has crashed.",
+                contents = ["Your training has crashed ☠️",
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -89,9 +75,8 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                             '%s\n\n' % ex,
                             "Traceback:",
                             '%s' % traceback.format_exc()]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has crashed ☠️', contents)
+                text = '\n'.join(contents)
+                show_notification(text, title)
                 raise ex
 
         return wrapper_sender

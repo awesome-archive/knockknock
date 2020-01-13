@@ -1,30 +1,31 @@
-import os
 import datetime
-import traceback
 import functools
+import json
+import os
+import requests
 import socket
-import yagmail
+import traceback
+
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-def email_sender(recipient_emails: list, sender_email: str = None):
+def discord_sender(webhook_url: str):
     """
-    Email sender wrapper: execute func, send an email with the end status
-    (sucessfully finished or crashed) at the end. Also send an email before
+    Discord sender wrapper: execute func, send a Discord message with the end status
+    (sucessfully finished or crashed) at the end. Also send a Discord message before
     executing func.
 
-    `recipient_emails`: list[str]
-        A list of email addresses to notify.
-    `sender_email`: str (default=None)
-        The email adress to send the messages. If None, use the same
-        address as the first recipient email in `recipient_emails`
-        if length of `recipient_emails` is more than 0.
+    `webhook_url`: str
+        The Discord webhook URL for posting messages.
+        Visit https://support.discordapp.com/hc/en-us/articles/228383668-Intro-to-Webhooks to
+        set up your webhook and get your URL.
     """
-    if sender_email is None and len(recipient_emails) > 0:
-        sender_email = recipient_emails[0]
-    yag_sender = yagmail.SMTP(sender_email)
-
     def decorator_sender(func):
+        def send_message(text: str):
+            headers = {'Content-Type': 'application/json'}
+            payload = json.dumps({'content': text})
+            r = requests.post(url=webhook_url, data=payload, headers=headers)
+        
         @functools.wraps(func)
         def wrapper_sender(*args, **kwargs):
 
@@ -44,20 +45,20 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                 master_process = True
 
             if master_process:
-                contents = ['Your training has started.',
+                contents = ['Your training has started 🎬',
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT)]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has started 🎬', contents)
+                text = '\n'.join(contents)
+                send_message(text=text)
+
             try:
                 value = func(*args, **kwargs)
 
                 if master_process:
                     end_time = datetime.datetime.now()
                     elapsed_time = end_time - start_time
-                    contents = ["Your training is complete.",
+                    contents = ["Your training is complete 🎉",
                                 'Machine name: %s' % host_name,
                                 'Main call: %s' % func_name,
                                 'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -70,16 +71,15 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                     except:
                         contents.append('Main call returned value: %s'% "ERROR - Couldn't str the returned value.")
 
-                    for i in range(len(recipient_emails)):
-                        current_recipient = recipient_emails[i]
-                        yag_sender.send(current_recipient, 'Training has sucessfully finished 🎉', contents)
+                    text = '\n'.join(contents)
+                    send_message(text=text)
 
                 return value
 
             except Exception as ex:
                 end_time = datetime.datetime.now()
                 elapsed_time = end_time - start_time
-                contents = ["Your training has crashed.",
+                contents = ["Your training has crashed ☠️",
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -89,9 +89,8 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                             '%s\n\n' % ex,
                             "Traceback:",
                             '%s' % traceback.format_exc()]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has crashed ☠️', contents)
+                text = '\n'.join(contents)
+                send_message(text=text)
                 raise ex
 
         return wrapper_sender

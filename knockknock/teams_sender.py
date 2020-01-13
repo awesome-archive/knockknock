@@ -1,28 +1,32 @@
+from typing import List
 import os
 import datetime
 import traceback
 import functools
+import json
 import socket
-import yagmail
+import requests
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-def email_sender(recipient_emails: list, sender_email: str = None):
+
+def teams_sender(webhook_url: str, user_mentions: List[str] = []):
     """
-    Email sender wrapper: execute func, send an email with the end status
-    (sucessfully finished or crashed) at the end. Also send an email before
+    team sender wrapper: execute func, send a team notification with the end status
+    (sucessfully finished or crashed) at the end. Also send a Slack notification before
     executing func.
 
-    `recipient_emails`: list[str]
-        A list of email addresses to notify.
-    `sender_email`: str (default=None)
-        The email adress to send the messages. If None, use the same
-        address as the first recipient email in `recipient_emails`
-        if length of `recipient_emails` is more than 0.
+    `webhook_url`: str
+        The webhook URL to access your slack room.
+        Visit https://docs.microsoft.com/en-us/microsoftteams/platform/concepts/connectors/connectors-using for more details.
+    `user_mentions`: List[str] (default=[])
+        Optional users ids to notify.
     """
-    if sender_email is None and len(recipient_emails) > 0:
-        sender_email = recipient_emails[0]
-    yag_sender = yagmail.SMTP(sender_email)
+
+    dump = {
+        "username": "Knock Knock",
+        "icon_emoji": ":clapper:",
+    }
 
     def decorator_sender(func):
         @functools.wraps(func)
@@ -44,54 +48,64 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                 master_process = True
 
             if master_process:
-                contents = ['Your training has started.',
+                contents = ['Your training has started 🎬',
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT)]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has started 🎬', contents)
+                contents.append(' '.join(user_mentions))
+                dump['text'] = '\n'.join(contents)
+                dump['icon_emoji'] = ':clapper:'
+                requests.post(webhook_url, json.dumps(dump))
+
             try:
                 value = func(*args, **kwargs)
 
                 if master_process:
                     end_time = datetime.datetime.now()
                     elapsed_time = end_time - start_time
-                    contents = ["Your training is complete.",
+                    contents = ["Your training is complete 🎉",
                                 'Machine name: %s' % host_name,
                                 'Main call: %s' % func_name,
-                                'Starting date: %s' % start_time.strftime(DATE_FORMAT),
-                                'End date: %s' % end_time.strftime(DATE_FORMAT),
+                                'Starting date: %s' % start_time.strftime(
+                                    DATE_FORMAT),
+                                'End date: %s' % end_time.strftime(
+                                    DATE_FORMAT),
                                 'Training duration: %s' % str(elapsed_time)]
 
                     try:
                         str_value = str(value)
-                        contents.append('Main call returned value: %s'% str_value)
+                        contents.append(
+                            'Main call returned value: %s' % str_value)
                     except:
-                        contents.append('Main call returned value: %s'% "ERROR - Couldn't str the returned value.")
+                        contents.append('Main call returned value: %s' %
+                                        "ERROR - Couldn't str the returned value.")
 
-                    for i in range(len(recipient_emails)):
-                        current_recipient = recipient_emails[i]
-                        yag_sender.send(current_recipient, 'Training has sucessfully finished 🎉', contents)
+                    contents.append(' '.join(user_mentions))
+                    dump['text'] = '\n'.join(contents)
+                    dump['icon_emoji'] = ':tada:'
+                    requests.post(webhook_url, json.dumps(dump))
 
                 return value
 
             except Exception as ex:
                 end_time = datetime.datetime.now()
                 elapsed_time = end_time - start_time
-                contents = ["Your training has crashed.",
+                contents = ["Your training has crashed ☠️",
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
-                            'Starting date: %s' % start_time.strftime(DATE_FORMAT),
+                            'Starting date: %s' % start_time.strftime(
+                                DATE_FORMAT),
                             'Crash date: %s' % end_time.strftime(DATE_FORMAT),
-                            'Crashed training duration: %s\n\n' % str(elapsed_time),
+                            'Crashed training duration: %s\n\n' % str(
+                                elapsed_time),
                             "Here's the error:",
                             '%s\n\n' % ex,
                             "Traceback:",
                             '%s' % traceback.format_exc()]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has crashed ☠️', contents)
+                contents.append(' '.join(user_mentions))
+                dump['text'] = '\n'.join(contents)
+                dump['icon_emoji'] = ':skull_and_crossbones:'
+                requests.post(webhook_url, json.dumps(dump))
                 raise ex
 
         return wrapper_sender

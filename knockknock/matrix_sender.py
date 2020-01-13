@@ -3,26 +3,33 @@ import datetime
 import traceback
 import functools
 import socket
-import yagmail
+from matrix_client.api import MatrixHttpApi
 
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-def email_sender(recipient_emails: list, sender_email: str = None):
+def matrix_sender(homeserver: str, token: str, room: str):
     """
-    Email sender wrapper: execute func, send an email with the end status
-    (sucessfully finished or crashed) at the end. Also send an email before
+    Matrix sender wrapper: execute func, send a Matrix message with the end status
+    (sucessfully finished or crashed) at the end. Also send a Matrix message before
     executing func.
 
-    `recipient_emails`: list[str]
-        A list of email addresses to notify.
-    `sender_email`: str (default=None)
-        The email adress to send the messages. If None, use the same
-        address as the first recipient email in `recipient_emails`
-        if length of `recipient_emails` is more than 0.
+    `homeserver`: str
+        The homeserver address which was used to register the BOT.
+        It is e.g. 'https://matrix-client.matrix.org'. It can be also looked up
+        in Riot by looking in the riot settings, "Help & About" at the bottom.
+        Specifying the schema (`http` or `https`) is required.
+    `token`: str
+        The access TOKEN of the user that will send the messages.
+        It can be obtained in Riot by looking in the riot settings, "Help & About" ,
+        down the bottom is: Access Token:<click to reveal>
+    `room`: str
+        The alias of the room to which messages will be send by the BOT.
+        After creating a room, an alias can be set. In Riot, this can be done
+        by opening the room settings under 'Room Addresses'.
     """
-    if sender_email is None and len(recipient_emails) > 0:
-        sender_email = recipient_emails[0]
-    yag_sender = yagmail.SMTP(sender_email)
+
+    matrix = MatrixHttpApi(homeserver, token=token)
+    room_id = matrix.get_room_id(room)
 
     def decorator_sender(func):
         @functools.wraps(func)
@@ -44,20 +51,21 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                 master_process = True
 
             if master_process:
-                contents = ['Your training has started.',
+                contents = ['Your training has started 🎬',
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT)]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has started 🎬', contents)
+                text = '\n'.join(contents)
+
+                matrix.send_message(room_id, text)
+
             try:
                 value = func(*args, **kwargs)
 
                 if master_process:
                     end_time = datetime.datetime.now()
                     elapsed_time = end_time - start_time
-                    contents = ["Your training is complete.",
+                    contents = ["Your training is complete 🎉",
                                 'Machine name: %s' % host_name,
                                 'Main call: %s' % func_name,
                                 'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -70,16 +78,15 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                     except:
                         contents.append('Main call returned value: %s'% "ERROR - Couldn't str the returned value.")
 
-                    for i in range(len(recipient_emails)):
-                        current_recipient = recipient_emails[i]
-                        yag_sender.send(current_recipient, 'Training has sucessfully finished 🎉', contents)
+                    text = '\n'.join(contents)
+                    matrix.send_message(room_id, text)
 
                 return value
 
             except Exception as ex:
                 end_time = datetime.datetime.now()
                 elapsed_time = end_time - start_time
-                contents = ["Your training has crashed.",
+                contents = ["Your training has crashed ☠️",
                             'Machine name: %s' % host_name,
                             'Main call: %s' % func_name,
                             'Starting date: %s' % start_time.strftime(DATE_FORMAT),
@@ -89,9 +96,8 @@ def email_sender(recipient_emails: list, sender_email: str = None):
                             '%s\n\n' % ex,
                             "Traceback:",
                             '%s' % traceback.format_exc()]
-                for i in range(len(recipient_emails)):
-                    current_recipient = recipient_emails[i]
-                    yag_sender.send(current_recipient, 'Training has crashed ☠️', contents)
+                text = '\n'.join(contents)
+                matrix.send_message(room_id, text)
                 raise ex
 
         return wrapper_sender
